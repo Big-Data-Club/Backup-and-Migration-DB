@@ -1,0 +1,50 @@
+{
+  "run_id": "a55a7956",
+  "source_host": "ep-blue-mode-ao54240t.c-2.ap-southeast-1.aws.neon.tech",
+  "target_host": "ep-empty-meadow-aohe4xbd-pooler.c-2.ap-southeast-1.aws.neon.tech",
+  "target_type": "neon",
+  "started_at": "2026-05-16T06:34:42.522814",
+  "finished_at": "2026-05-16T06:35:22.637063",
+  "overall_status": "success",
+  "databases": {
+    "ai": {
+      "db_name": "ai",
+      "status": "success",
+      "started_at": "2026-05-16T06:34:44.127175",
+      "finished_at": "2026-05-16T06:35:22.633475",
+      "error": null,
+      "size_bytes": 36634624,
+      "tables_count": 21,
+      "rows_migrated": 33362,
+      "dump_path": "dumps\\ai_20260516_133444.dump",
+      "duration_seconds": 38.5,
+      "retries": 0
+    },
+    "auth": {
+      "db_name": "auth",
+      "status": "success",
+      "started_at": "2026-05-16T06:34:44.127351",
+      "finished_at": "2026-05-16T06:34:56.681039",
+      "error": null,
+      "size_bytes": 8683520,
+      "tables_count": 12,
+      "rows_migrated": 74,
+      "dump_path": "dumps\\auth_20260516_133444.dump",
+      "duration_seconds": 12.55,
+      "retries": 0
+    },
+    "lms": {
+      "db_name": "lms",
+      "status": "success",
+      "started_at": "2026-05-16T06:34:44.127884",
+      "finished_at": "2026-05-16T06:35:20.147210",
+      "error": null,
+      "size_bytes": 16711680,
+      "tables_count": 27,
+      "rows_migrated": 2980,
+      "dump_path": "dumps\\lms_20260516_133444.dump",
+      "duration_seconds": 36.02,
+      "retries": 0
+    }
+  }
+}

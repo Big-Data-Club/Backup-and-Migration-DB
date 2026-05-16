@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# config.yaml — Neon Migration Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this to config.local.yaml and fill in your actual credentials.
+# NEVER commit real credentials to git.
+# Use environment variable substitution: ${VAR_NAME}
+
+source_url: "${NEON_SOURCE_URL}"
+# Example: postgresql://user:password@ep-xxx.us-east-1.aws.neon.tech/postgres?sslmode=require
+
+targets:
+  # Target 1: Another Neon project
+  - type: neon
+    label: neon_prod
+    url: "${NEON_TARGET_PROD_URL}"
+
+  # Target 2: Local PostgreSQL (Docker or native)
+  - type: local
+    label: local_postgres
+    url: "postgresql://postgres:postgres@localhost:5432/postgres"
+
+  # Target 3: AWS RDS (optional)
+  # - type: rds
+  #   label: rds_backup
+  #   url: "${RDS_BACKUP_URL}"
+
+# Databases to SKIP (always skip system DBs)
+exclude_dbs:
+  - template0
+  - template1
+  - postgres
+
+# Databases to INCLUDE (empty list = migrate ALL found databases)
+include_dbs: []
+# include_dbs:
+#   - myapp_db
+#   - analytics_db
+
+# Where to store pg_dump files during migration
+dump_dir: "/tmp/neon_dumps"
+
+# How many databases to migrate in parallel
+parallel_workers: 2
+
+# Retry settings
+max_retries: 3
+retry_delay_seconds: 30
+
+# Extra args passed to pg_dump (e.g. --schema=public --exclude-table=logs)
+pg_dump_extra_args: []
+
+# Verify table count matches after each restore
+verify_after_migrate: true
+
+# Delete dump files after successful migration
+clean_dumps_after: false
+
+# Optional: Slack webhook for completion notification
+# notify_webhook: "https://hooks.slack.com/services/..."

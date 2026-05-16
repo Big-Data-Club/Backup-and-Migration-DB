@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Migration Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --surface: #111720;
+    --surface2: #1a2230;
+    --border: #1e2d3d;
+    --border2: #253445;
+    --text: #e2eaf4;
+    --text2: #7a93ac;
+    --text3: #4d6378;
+    --accent: #00d4ff;
+    --accent-dim: #00d4ff22;
+    --success: #00e5a0;
+    --success-dim: #00e5a015;
+    --warn: #ffb020;
+    --warn-dim: #ffb02015;
+    --danger: #ff4d6d;
+    --danger-dim: #ff4d6d15;
+    --pending: #6366f1;
+    --pending-dim: #6366f115;
+    --font: 'IBM Plex Sans', sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, #00d4ff, #6366f1);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+
+  .logo-text h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text);
+  }
+
+  .logo-text p {
+    font-size: 11px;
+    color: var(--text3);
+    font-family: var(--mono);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text2);
+    font-family: var(--mono);
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .btn-refresh {
+    padding: 6px 14px;
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font);
+    transition: all 0.15s;
+  }
+  .btn-refresh:hover { background: var(--surface2); color: var(--text); }
+
+  /* ── Main Layout ── */
+  .main {
+    padding: 24px 28px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ── Summary Cards ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.total::before { background: var(--accent); }
+  .stat-card.success::before { background: var(--success); }
+  .stat-card.failed::before { background: var(--danger); }
+  .stat-card.running::before { background: var(--warn); }
+  .stat-card.pending::before { background: var(--pending); }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text3);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .stat-card.total .stat-value { color: var(--accent); }
+  .stat-card.success .stat-value { color: var(--success); }
+  .stat-card.failed .stat-value { color: var(--danger); }
+  .stat-card.running .stat-value { color: var(--warn); }
+  .stat-card.pending .stat-value { color: var(--pending); }
+
+  .stat-sub {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 4px;
+  }
+
+  /* ── Content Grid ── */
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  /* ── Section Header ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+  }
+
+  /* ── DB Table ── */
+  .db-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .db-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 400;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .db-table td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .db-table tr:last-child td { border-bottom: none; }
+
+  .db-table tr:hover td { background: var(--surface2); }
+
+  .db-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* ── Status Badges ── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 500;
+  }
+
+  .badge-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+
+  .badge.success { background: var(--success-dim); color: var(--success); border: 1px solid #00e5a030; }
+  .badge.failed  { background: var(--danger-dim);  color: var(--danger);  border: 1px solid #ff4d6d30; }
+  .badge.running { background: var(--warn-dim);    color: var(--warn);    border: 1px solid #ffb02030; }
+  .badge.pending { background: var(--pending-dim); color: var(--pending); border: 1px solid #6366f130; }
+  .badge.skipped { background: #ffffff08;           color: var(--text3);   border: 1px solid var(--border); }
+
+  .badge.success .badge-dot { background: var(--success); }
+  .badge.failed  .badge-dot { background: var(--danger);  animation: pulse 1s infinite; }
+  .badge.running .badge-dot { background: var(--warn);    animation: pulse 1s infinite; }
+  .badge.pending .badge-dot { background: var(--pending); }
+
+  /* ── Progress bar ── */
+  .progress-wrap {
+    background: var(--border);
+    border-radius: 3px;
+    height: 4px;
+    min-width: 80px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+
+  .progress-fill.success { background: var(--success); }
+  .progress-fill.failed  { background: var(--danger); }
+  .progress-fill.running { background: var(--warn); animation: shimmer 1.5s infinite; }
+  .progress-fill.pending { background: var(--pending); width: 0; }
+
+  @keyframes shimmer {
+    0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; }
+  }
+
+  /* ── Size bar ── */
+  .size-cell { display: flex; align-items: center; gap: 8px; }
+  .size-bar-wrap { flex: 1; background: var(--border); border-radius: 2px; height: 3px; }
+  .size-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; opacity: 0.5; }
+
+  /* ── Run History ── */
+  .run-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .run-item:last-child { border-bottom: none; }
+
+  .run-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    width: 65px;
+    flex-shrink: 0;
+  }
+
+  .run-date {
+    color: var(--text2);
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .run-duration {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    width: 48px;
+    text-align: right;
+  }
+
+  /* ── Charts ── */
+  .chart-wrap {
+    position: relative;
+    height: 200px;
+    width: 100%;
+  }
+
+  /* ── Log Panel ── */
+  .log-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .log-body {
+    padding: 12px 18px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .log-line { color: var(--text2); }
+  .log-line.err { color: var(--danger); }
+  .log-line.ok  { color: var(--success); }
+  .log-line.inf { color: var(--accent); }
+  .log-line.warn { color: var(--warn); }
+
+  /* ── Source/Target Info ── */
+  .info-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .info-label {
+    color: var(--text3);
+    font-family: var(--mono);
+    width: 60px;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+  .info-value {
+    font-family: var(--mono);
+    color: var(--text);
+    background: var(--surface2);
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-id-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid #00d4ff22;
+  }
+
+  /* ── Empty State ── */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text3);
+  }
+  .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+  .empty p { font-size: 13px; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .tab {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--text3);
+    font-family: var(--mono);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text2); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 16px;
+    color: var(--text3);
+    font-size: 11px;
+    font-family: var(--mono);
+    border-top: 1px solid var(--border);
+    margin-top: 24px;
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-brand">
+    <div class="logo">🐘</div>
+    <div class="logo-text">
+      <h1>Neon Migration</h1>
+      <p>PostgreSQL migration dashboard</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot"></div>
+      <span id="last-updated">—</span>
+    </div>
+    <button class="btn-refresh" onclick="loadAll()">↻ Refresh</button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Summary Row -->
+  <div class="summary-grid">
+    <div class="stat-card total">
+      <div class="stat-label">Total DBs</div>
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-sub" id="stat-run-id">no run</div>
+    </div>
+    <div class="stat-card success">
+      <div class="stat-label">Success</div>
+      <div class="stat-value" id="stat-success">0</div>
+      <div class="stat-sub" id="stat-success-pct">—</div>
+    </div>
+    <div class="stat-card running">
+      <div class="stat-label">Running</div>
+      <div class="stat-value" id="stat-running">0</div>
+      <div class="stat-sub">in progress</div>
+    </div>
+    <div class="stat-card failed">
+      <div class="stat-label">Failed</div>
+      <div class="stat-value" id="stat-failed">0</div>
+      <div class="stat-sub" id="stat-retry-info">—</div>
+    </div>
+    <div class="stat-card pending">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value" id="stat-pending">0</div>
+      <div class="stat-sub">queued</div>
+    </div>
+  </div>
+
+  <!-- Content Grid -->
+  <div class="content-grid">
+
+    <!-- Left: DB Table + Logs -->
+    <div>
+      <div class="panel" style="margin-bottom: 20px;">
+        <div class="section-header">
+          <span class="section-title">databases</span>
+          <span id="overall-badge" class="badge pending">
+            <span class="badge-dot"></span>
+            <span id="overall-status-text">waiting</span>
+          </span>
+        </div>
+
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('all')">All</div>
+          <div class="tab" onclick="switchTab('success')">Success</div>
+          <div class="tab" onclick="switchTab('failed')">Failed</div>
+          <div class="tab" onclick="switchTab('running')">Running</div>
+        </div>
+
+        <div id="db-table-container">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th>Database</th>
+                <th>Status</th>
+                <th>Size</th>
+                <th>Tables</th>
+                <th>Duration</th>
+                <th>Target</th>
+                <th>Progress</th>
+              </tr>
+            </thead>
+            <tbody id="db-tbody">
+              <tr><td colspan="7">
+                <div class="empty">
+                  <div class="empty-icon">⏳</div>
+                  <p>Loading migration state…</p>
+                </div>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Logs -->
+      <div class="log-panel">
+        <div class="log-header">
+          <span class="section-title">live logs</span>
+          <span style="font-size:11px; color: var(--text3); font-family: var(--mono);" id="log-filename">—</span>
+        </div>
+        <div class="log-body" id="log-body">
+          <div class="log-line inf">Connecting to log stream…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+
+      <!-- Connection Info -->
+      <div class="panel">
+        <div class="section-title" style="margin-bottom: 12px;">connection</div>
+        <div class="info-row">
+          <span class="info-label">source</span>
+          <span class="info-value" id="info-source">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">target</span>
+          <span class="info-value" id="info-target">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">type</span>
+          <span class="info-value" id="info-type">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">started</span>
+          <span class="info-value" id="info-started">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">run id</span>
+          <span class="info-value" id="info-runid">—</span>
+        </div>
+      </div>
+
+      <!-- Status Donut -->
+      <div class="panel">
+        <div class="section-title" style="margin-bottom: 12px;">status distribution</div>
+        <div class="chart-wrap" style="height: 170px;">
+          <canvas id="donut-chart" role="img" aria-label="Database migration status distribution donut chart">Status distribution chart</canvas>
+        </div>
+        <div id="donut-legend" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; justify-content: center; font-size: 11px; font-family: var(--mono);"></div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="panel">
+        <div class="section-title" style="margin-bottom: 12px;">recent airflow runs</div>
+        <div id="run-list">
+          <div class="empty" style="padding: 20px;">
+            <p>Loading run history…</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<footer class="footer">
+  neon migration dashboard · auto-refresh every 10s · data from migration_state.json + airflow api
+</footer>
+
+<script>
+const API = '';   // same origin; set to 'http://localhost:8081' for dev
+const AIRFLOW = 'http://localhost:8080';
+const AIRFLOW_AUTH = 'Basic ' + btoa('admin:admin');
+
+let donutChart = null;
+let currentTab = 'all';
+let stateData = null;
+
+// ── Fetch State ──────────────────────────────────────────────────────────────
+async function fetchState() {
+  try {
+    const r = await fetch(API + '/api/state');
+    return await r.json();
+  } catch {
+    // Fallback: load migration_state.json directly (static mode)
+    try {
+      const r = await fetch('./migration_state.json');
+      return await r.json();
+    } catch {
+      return generateMockState();
+    }
+  }
+}
+
+async function fetchRuns() {
+  try {
+    const r = await fetch(API + '/api/runs');
+    return await r.json();
+  } catch {
+    try {
+      const r = await fetch(AIRFLOW + '/api/v1/dags/neon_db_migration/dagRuns?limit=8&order_by=-execution_date', {
+        headers: { 'Authorization': AIRFLOW_AUTH }
+      });
+      const d = await r.json();
+      return d.dag_runs || [];
+    } catch { return []; }
+  }
+}
+
+async function fetchLogs() {
+  try {
+    const r = await fetch(API + '/api/logs');
+    return await r.json();
+  } catch { return { lines: [], file: null }; }
+}
+
+// ── Mock Data (when server unreachable) ──────────────────────────────────────
+function generateMockState() {
+  const dbs = ['app_db', 'analytics', 'users_db', 'payments', 'inventory', 'logs_db', 'sessions'];
+  const statuses = ['success','success','success','success','running','failed','pending'];
+  const databases = {};
+  dbs.forEach((db, i) => {
+    const s = statuses[i];
+    databases[db] = {
+      db_name: db,
+      status: s,
+      size_bytes: Math.floor(Math.random() * 500 * 1024 * 1024),
+      tables_count: Math.floor(Math.random() * 80) + 5,
+      rows_migrated: Math.floor(Math.random() * 1000000),
+      duration_seconds: s === 'success' ? (Math.random() * 300 + 30).toFixed(1) : null,
+      started_at: new Date(Date.now() - Math.random() * 3600000).toISOString(),
+      finished_at: s === 'success' ? new Date().toISOString() : null,
+      error: s === 'failed' ? 'pg_restore: error: connection failed: FATAL: password authentication failed' : null,
+      retries: s === 'failed' ? 2 : 0,
+    };
+  });
+
+  return {
+    run_id: 'a4f2c891',
+    source_host: 'ep-quiet-moon-123456.us-east-1.aws.neon.tech',
+    target_host: 'localhost | ep-prod-456.us-west-2.aws.neon.tech',
+    target_type: 'local | neon',
+    started_at: new Date(Date.now() - 1800000).toISOString(),
+    finished_at: null,
+    overall_status: 'running',
+    databases,
+  };
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function renderSummary(state) {
+  const dbs = Object.values(state.databases || {});
+  const counts = { success: 0, failed: 0, running: 0, pending: 0, skipped: 0 };
+  dbs.forEach(d => { if (counts[d.status] !== undefined) counts[d.status]++; });
+
+  document.getElementById('stat-total').textContent = dbs.length;
+  document.getElementById('stat-success').textContent = counts.success;
+  document.getElementById('stat-failed').textContent = counts.failed;
+  document.getElementById('stat-running').textContent = counts.running;
+  document.getElementById('stat-pending').textContent = counts.pending;
+
+  const pct = dbs.length ? Math.round(counts.success / dbs.length * 100) : 0;
+  document.getElementById('stat-success-pct').textContent = pct + '% complete';
+  document.getElementById('stat-run-id').textContent = 'run ' + (state.run_id || '—');
+
+  const retries = dbs.reduce((s, d) => s + (d.retries || 0), 0);
+  document.getElementById('stat-retry-info').textContent = retries > 0 ? retries + ' retries' : 'no retries';
+
+  const overall = state.overall_status || 'pending';
+  const ob = document.getElementById('overall-badge');
+  ob.className = 'badge ' + (overall === 'running' ? 'running' : overall === 'success' ? 'success' : overall.includes('fail') ? 'failed' : 'pending');
+  document.getElementById('overall-status-text').textContent = overall.replace('_', ' ');
+}
+
+function renderConnectionInfo(state) {
+  document.getElementById('info-source').textContent = (state.source_host || '—').substring(0, 40);
+  document.getElementById('info-target').textContent = (state.target_host || '—').substring(0, 40);
+  document.getElementById('info-type').textContent = state.target_type || '—';
+  document.getElementById('info-runid').textContent = state.run_id || '—';
+  if (state.started_at) {
+    const d = new Date(state.started_at);
+    document.getElementById('info-started').textContent = d.toLocaleString();
+  }
+}
+
+function fmtBytes(b) {
+  if (!b) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function fmtDuration(s) {
+  if (!s) return '—';
+  s = parseFloat(s);
+  if (s < 60) return s.toFixed(1) + 's';
+  return Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's';
+}
+
+function renderDBTable(state) {
+  const dbs = Object.values(state.databases || {});
+  const filtered = currentTab === 'all' ? dbs : dbs.filter(d => d.status === currentTab);
+  const maxSize = Math.max(...dbs.map(d => d.size_bytes || 0), 1);
+
+  const tbody = document.getElementById('db-tbody');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><div class="empty-icon">🔍</div><p>No databases in this category</p></div></td></tr>`;
+    return;
+  }
+
+  const statusOrder = { running: 0, failed: 1, pending: 2, success: 3, skipped: 4 };
+  filtered.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+
+  const progressMap = { success: 100, failed: 100, running: 55, pending: 0, skipped: 0 };
+
+  tbody.innerHTML = filtered.map(db => {
+    const prog = progressMap[db.status] || 0;
+    const sizePct = Math.round((db.size_bytes || 0) / maxSize * 100);
+
+    return `
+      <tr>
+        <td>
+          <div class="db-name">${db.db_name}</div>
+          ${db.error ? `<div style="font-size:10px; color: var(--danger); margin-top:3px; font-family: var(--mono);">${db.error.substring(0, 60)}…</div>` : ''}
+        </td>
+        <td>
+          <span class="badge ${db.status}">
+            <span class="badge-dot"></span>
+            ${db.status}
+          </span>
+          ${db.retries > 0 ? `<div style="font-size:10px; color:var(--warn); margin-top:3px; font-family:var(--mono);">${db.retries} retries</div>` : ''}
+        </td>
+        <td>
+          <div class="size-cell">
+            <span style="font-family:var(--mono); font-size:12px; color:var(--text2); min-width:60px;">${fmtBytes(db.size_bytes)}</span>
+            <div class="size-bar-wrap"><div class="size-bar-fill" style="width:${sizePct}%"></div></div>
+          </div>
+        </td>
+        <td style="font-family:var(--mono); color:var(--text2);">${db.tables_count || '—'}</td>
+        <td style="font-family:var(--mono); color:var(--text2);">${fmtDuration(db.duration_seconds)}</td>
+        <td style="font-family:var(--mono); font-size:11px; color:var(--text3);">${(state.target_type || '').split('|').join('<br>')}</td>
+        <td>
+          <div class="progress-wrap">
+            <div class="progress-fill ${db.status}" style="width:${prog}%"></div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderDonut(state) {
+  const dbs = Object.values(state.databases || {});
+  const counts = { success: 0, failed: 0, running: 0, pending: 0 };
+  dbs.forEach(d => { if (counts[d.status] !== undefined) counts[d.status]++; });
+
+  const labels = ['Success', 'Failed', 'Running', 'Pending'];
+  const data = [counts.success, counts.failed, counts.running, counts.pending];
+  const colors = ['#00e5a0', '#ff4d6d', '#ffb020', '#6366f1'];
+
+  if (donutChart) {
+    donutChart.data.datasets[0].data = data;
+    donutChart.update();
+  } else {
+    const ctx = document.getElementById('donut-chart').getContext('2d');
+    donutChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: colors,
+          borderColor: '#111720',
+          borderWidth: 3,
+          hoverBorderWidth: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a2230',
+            borderColor: '#1e2d3d',
+            borderWidth: 1,
+            titleColor: '#e2eaf4',
+            bodyColor: '#7a93ac',
+            padding: 10,
+            callbacks: {
+              label: ctx => ` ${ctx.label}: ${ctx.raw} db${ctx.raw !== 1 ? 's' : ''}`,
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Custom legend
+  const legend = document.getElementById('donut-legend');
+  legend.innerHTML = labels.map((l, i) => `
+    <span style="display:flex; align-items:center; gap:4px; color:var(--text2);">
+      <span style="width:10px;height:10px;border-radius:2px;background:${colors[i]};display:inline-block;"></span>
+      ${l}: <span style="color:${colors[i]}">${data[i]}</span>
+    </span>
+  `).join('');
+}
+
+function renderRuns(runs) {
+  const container = document.getElementById('run-list');
+  if (!runs || !runs.length || runs[0]?.error) {
+    container.innerHTML = `
+      <div class="empty" style="padding:20px;">
+        <p>No Airflow runs found.<br>Start from <a href="${AIRFLOW}/dags/neon_db_migration" target="_blank" style="color:var(--accent);">Airflow UI</a></p>
+      </div>`;
+    return;
+  }
+
+  const statusMap = { success: 'success', failed: 'failed', running: 'running', queued: 'pending' };
+
+  container.innerHTML = runs.slice(0, 6).map(run => {
+    const st = statusMap[run.state] || 'pending';
+    const execDate = run.execution_date ? new Date(run.execution_date).toLocaleString() : '—';
+    const runId = (run.run_id || '').substring(0, 14);
+    let duration = '—';
+    if (run.start_date && run.end_date) {
+      const secs = (new Date(run.end_date) - new Date(run.start_date)) / 1000;
+      duration = fmtDuration(secs);
+    }
+    return `
+      <div class="run-item">
+        <span class="run-id">${runId}</span>
+        <span class="badge ${st}" style="flex-shrink:0;"><span class="badge-dot"></span>${run.state}</span>
+        <span class="run-date">${execDate}</span>
+        <span class="run-duration">${duration}</span>
+      </div>`;
+  }).join('');
+}
+
+function renderLogs(logData) {
+  const body = document.getElementById('log-body');
+  if (!logData.lines || !logData.lines.length) {
+    body.innerHTML = '<div class="log-line">No log data available. Run the migration to see logs.</div>';
+    return;
+  }
+
+  document.getElementById('log-filename').textContent = logData.file || '—';
+
+  body.innerHTML = logData.lines.map(line => {
+    const l = line.trim();
+    let cls = 'log-line';
+    if (l.includes('ERROR') || l.includes('failed') || l.includes('FAIL')) cls += ' err';
+    else if (l.includes('✅') || l.includes('success') || l.includes('Done')) cls += ' ok';
+    else if (l.includes('WARNING') || l.includes('warning')) cls += ' warn';
+    else if (l.includes('INFO') && (l.includes('Starting') || l.includes('Dump') || l.includes('Restore'))) cls += ' inf';
+    return `<div class="${cls}">${escapeHTML(l)}</div>`;
+  }).join('');
+
+  body.scrollTop = body.scrollHeight;
+}
+
+function escapeHTML(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Tab Switch ────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.textContent.toLowerCase() === tab);
+  });
+  if (stateData) renderDBTable(stateData);
+}
+
+// ── Main Load ─────────────────────────────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+
+  const [state, runs, logs] = await Promise.all([
+    fetchState(),
+    fetchRuns(),
+    fetchLogs(),
+  ]);
+
+  stateData = state;
+
+  renderSummary(state);
+  renderConnectionInfo(state);
+  renderDBTable(state);
+  renderDonut(state);
+  renderRuns(runs);
+  renderLogs(logs);
+}
+
+// ── Auto-refresh every 10 seconds ────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>
