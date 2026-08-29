@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tool_version="$(<"${root_dir}/VERSION")"
+core_dir="${CORE_DIR:-${root_dir}/../CoreApplication}"
+ssh_target="${K3S_SSH_TARGET:-bdc}"
+remote_env_file="${K3S_REMOTE_ENV_FILE:-/home/bdc_web/codespace/core/.env}"
+namespace="${K3S_NAMESPACE:-default}"
+migration_jobs="${MIGRATION_JOBS:-2}"
+auto_cutover="${AUTO_CUTOVER:-true}"
+quiesce_writes="${QUIESCE_WRITES:-true}"
+keep_runs="${KEEP_MIGRATION_RUNS:-3}"
+probe_image="${POSTGRES_PROBE_IMAGE:-postgres:17-alpine}"
+prune_threshold="${K3S_PRUNE_DISK_THRESHOLD:-82}"
+
+usage() {
+  cat <<'EOF'
+Usage: ./start_migrate [options]
+
+Interactive, full PostgreSQL migration and optional production K3s cutover.
+
+Options:
+  --no-cutover       Migrate and update local Core config only.
+  --no-quiesce       Do not scale production DB consumers to zero first.
+                     This permits writes during dumps and weakens consistency.
+  --jobs N           Parallel pg_dump/pg_restore jobs per database (default: 2).
+  --keep-runs N      Keep the newest N local dump runs (default: 3).
+  --version          Print the tool version.
+  -h, --help         Show this help.
+
+Environment overrides:
+  CORE_DIR, K3S_SSH_TARGET, K3S_REMOTE_ENV_FILE, K3S_NAMESPACE,
+  MIGRATION_JOBS, KEEP_MIGRATION_RUNS, AUTO_CUTOVER, QUIESCE_WRITES.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --no-cutover) auto_cutover=false ;;
+    --no-quiesce) quiesce_writes=false ;;
+    --jobs) shift; migration_jobs="${1:?--jobs requires a value}" ;;
+    --keep-runs) shift; keep_runs="${1:?--keep-runs requires a value}" ;;
+    --version) echo "$tool_version"; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+  shift
+done
+
+[[ "$migration_jobs" =~ ^[1-9][0-9]*$ ]] || { echo "--jobs must be a positive integer" >&2; exit 2; }
+[[ "$keep_runs" =~ ^[1-9][0-9]*$ ]] || { echo "--keep-runs must be a positive integer" >&2; exit 2; }
+[[ "$prune_threshold" =~ ^[0-9]+$ ]] && ((prune_threshold >= 50 && prune_threshold <= 99)) || {
+  echo "K3S_PRUNE_DISK_THRESHOLD must be between 50 and 99" >&2
+  exit 2
+}
+[[ "$namespace" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { echo "Invalid K3s namespace" >&2; exit 2; }
+
+for command in docker python3; do
+  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
+done
+if [[ "$auto_cutover" == true ]]; then
+  command -v ssh >/dev/null || { echo "Missing required command: ssh" >&2; exit 1; }
+fi
+[[ -d "$core_dir" ]] || { echo "CoreApplication directory not found: $core_dir" >&2; exit 1; }
+[[ -f "${core_dir}/.env" && -f "${core_dir}/k3s/base/configmap.yaml" ]] || {
+  echo "CoreApplication .env or K3s ConfigMap is missing under: $core_dir" >&2
+  exit 1
+}
+docker info >/dev/null 2>&1 || { echo "Docker daemon is not available to the current user" >&2; exit 1; }
+
+read_connection_url() {
+  local label=$1 variable_name=$2 value
+  if [[ -t 0 ]]; then
+    read -r -s -p "${label}: " value
+    printf '\n'
+  else
+    IFS= read -r value
+  fi
+  [[ "$value" != *$'\n'* && "$value" == postgresql://* ]] || {
+    echo "${label} must be a postgresql:// URL" >&2
+    exit 2
+  }
+  printf -v "$variable_name" '%s' "$value"
+}
+
+echo "BDC PostgreSQL migration and K3s cutover v${tool_version}"
+echo "Connection URLs are hidden while typing and are never written to logs."
+read_connection_url "Source URL" source_url
+read_connection_url "Destination URL" target_url
+[[ "$source_url" != "$target_url" ]] || { echo "Source and destination URLs must differ" >&2; exit 2; }
+
+url_summary() {
+  MIGRATION_URL="$1" python3 - <<'PY'
+import os
+from urllib.parse import urlsplit
+
+url = urlsplit(os.environ["MIGRATION_URL"])
+if url.scheme not in {"postgresql", "postgres"} or not url.hostname or not url.username:
+    raise SystemExit("Invalid PostgreSQL URL")
+if not url.path.lstrip("/"):
+    raise SystemExit("PostgreSQL URL must include a database path used for administration")
+print(f"{url.username}@{url.hostname}:{url.port or 5432}/{url.path.lstrip('/')}")
+PY
+}
+
+echo "Source:      $(url_summary "$source_url")"
+echo "Destination: $(url_summary "$target_url")"
+
+run_id="$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%04x' "$((RANDOM % 65536))")"
+dump_dir="${root_dir}/dumps/cutover-${run_id}"
+mkdir -p "$dump_dir"
+
+secret_env="$(mktemp)"
+chmod 600 "$secret_env"
+quiesced=false
+cutover_complete=false
+local_config_updated=false
+local_backup_dir="$(mktemp -d)"
+chmod 700 "$local_backup_dir"
+cp "${core_dir}/.env" "${local_backup_dir}/core.env"
+cp "${core_dir}/k3s/base/configmap.yaml" "${local_backup_dir}/configmap.yaml"
+
+direct_target_url="$(MIGRATION_URL="$target_url" python3 - <<'PY'
+import os
+from urllib.parse import urlsplit, urlunsplit
+
+url = urlsplit(os.environ["MIGRATION_URL"])
+host = url.hostname or ""
+if "-pooler." in host:
+    host = host.replace("-pooler.", ".", 1)
+userinfo = ""
+if url.username is not None:
+    userinfo = url.username
+    if url.password is not None:
+        userinfo += ":" + url.password
+    userinfo += "@"
+netloc = userinfo + host
+if url.port:
+    netloc += f":{url.port}"
+print(urlunsplit((url.scheme, netloc, url.path, url.query, url.fragment)))
+PY
+)"
+
+cat >"$secret_env" <<EOF
+SOURCE_URL=${source_url}
+TARGET_URL=${target_url}
+TARGET_DIRECT_URL=${direct_target_url}
+MIGRATION_JOBS=${migration_jobs}
+RUN_ID=${run_id}
+EOF
+
+invoke_remote() {
+  local mode=$1 remote_command
+  printf -v remote_command \
+    'IFS= read -r DESTINATION_URL; export DESTINATION_URL; exec bash -s -- %q %q %q %q %q' \
+    "$mode" "$run_id" "$remote_env_file" "$namespace" "$prune_threshold"
+  {
+    printf '%s\n' "$target_url"
+    cat "${root_dir}/scripts/remote_k3s_cutover.sh"
+  } | ssh "$ssh_target" "$remote_command"
+}
+
+recover_on_error() {
+  local exit_code=$?
+  rm -f "$secret_env"
+  if ((exit_code != 0)) && [[ "$local_config_updated" == true && "$cutover_complete" != true ]]; then
+    cp "${local_backup_dir}/core.env" "${core_dir}/.env"
+    cp "${local_backup_dir}/configmap.yaml" "${core_dir}/k3s/base/configmap.yaml"
+    echo "Local Core database configuration restored." >&2
+  fi
+  if ((exit_code != 0)) && [[ "$quiesced" == true && "$cutover_complete" != true ]]; then
+    echo "Migration/cutover failed; restoring production source configuration and replicas." >&2
+    invoke_remote rollback || echo "AUTOMATIC ROLLBACK FAILED; manual recovery is required." >&2
+  fi
+  rm -rf -- "$local_backup_dir"
+  exit "$exit_code"
+}
+trap recover_on_error EXIT
+
+echo "Detecting PostgreSQL server versions..."
+version_output="$(docker run --rm --env-file "$secret_env" "$probe_image" sh -c \
+  'printf "source="; psql "$SOURCE_URL" -Atc "show server_version_num"; printf "target="; psql "$TARGET_URL" -Atc "show server_version_num"')"
+source_version_num="$(awk -F= '$1=="source" {print $2}' <<<"$version_output")"
+target_version_num="$(awk -F= '$1=="target" {print $2}' <<<"$version_output")"
+[[ "$source_version_num" =~ ^[0-9]+$ && "$target_version_num" =~ ^[0-9]+$ ]] || {
+  echo "Could not detect PostgreSQL versions" >&2
+  exit 1
+}
+source_major=$((source_version_num / 10000))
+target_major=$((target_version_num / 10000))
+((target_major >= source_major)) || {
+  echo "Refusing restore from PostgreSQL ${source_major} into older PostgreSQL ${target_major}" >&2
+  exit 1
+}
+postgres_image="postgres:${source_major}-alpine"
+echo "Using ${postgres_image}; source major=${source_major}, target major=${target_major}."
+if ! docker image inspect "$postgres_image" >/dev/null 2>&1; then
+  echo "Pulling ${postgres_image} before the production write pause..."
+  docker pull "$postgres_image" >/dev/null
+fi
+
+if [[ "$auto_cutover" == true && "$quiesce_writes" == true ]]; then
+  echo "Quiescing production database writers..."
+  # Mark rollback as required before SSH: quiesce may fail after scaling only
+  # part of the deployment set.
+  quiesced=true
+  invoke_remote quiesce
+elif [[ "$quiesce_writes" != true ]]; then
+  echo "WARNING: production writes are not quiesced; cross-database cutover consistency is not guaranteed." >&2
+fi
+
+echo "Migrating every user database..."
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  --env-file "$secret_env" \
+  -v "${root_dir}/scripts/migrate_all_databases.sh:/opt/bdc/migrate.sh:ro" \
+  -v "${dump_dir}:/dumps" \
+  "$postgres_image" sh /opt/bdc/migrate.sh
+
+echo "Updating local CoreApplication database configuration..."
+local_config_updated=true
+DESTINATION_URL="$target_url" python3 "${root_dir}/scripts/update_core_config.py" "$core_dir"
+
+if [[ "$auto_cutover" == true ]]; then
+  echo "Applying production K3s cutover and controlled rollouts..."
+  # In --no-quiesce mode, cutover creates the remote recovery snapshot. Mark
+  # rollback as required before invoking it so any partial patch is reverted.
+  quiesced=true
+  invoke_remote cutover
+  cutover_complete=true
+else
+  echo "K3s cutover skipped (--no-cutover)."
+fi
+
+rm -f "$secret_env"
+rm -rf -- "$local_backup_dir"
+trap - EXIT
+
+mapfile -t old_runs < <(find "${root_dir}/dumps" -mindepth 1 -maxdepth 1 -type d -name 'cutover-*' -printf '%T@ %p\n' \
+  | sort -rn | tail -n "+$((keep_runs + 1))" | cut -d' ' -f2-)
+for old_run in "${old_runs[@]}"; do
+  [[ "$old_run" == "${root_dir}/dumps/"cutover-* ]] || continue
+  rm -rf -- "$old_run"
+done
+
+echo
+echo "Migration completed successfully."
+echo "Run ID: ${run_id}"
+echo "Dumps and report: ${dump_dir}"
+if [[ "$auto_cutover" == true ]]; then
+  echo "Production K3s now uses the destination database project."
+fi

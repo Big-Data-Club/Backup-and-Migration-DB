@@ -2,6 +2,120 @@
 
 Migrate all databases from a Neon host to another Neon host, local PostgreSQL, or any target — with Airflow orchestration and a live dashboard.
 
+## One-command production cutover (v2)
+
+Luồng được khuyến nghị cho BDC production:
+
+```bash
+./start_migrate
+```
+
+Tool chỉ hỏi hai giá trị và ẩn nội dung khi nhập:
+
+```text
+Source URL:
+Destination URL:
+```
+
+Sau đó tool tự động:
+
+1. Kiểm tra Docker, SSH, CoreApplication và hai PostgreSQL endpoint.
+2. Detect major version PostgreSQL để dùng đúng image client.
+3. SSH vào K3s và scale các service ghi DB về `0`, đồng thời lưu trạng thái
+   rollback của replicas, ConfigMap, Secret và production `.env`.
+4. Discover **tất cả** user database từ `pg_database`; không dùng danh sách cũ
+   hoặc database name nằm cuối URL làm phạm vi migration.
+5. Dump dạng directory và restore song song theo từng database.
+6. Verify số user table nguồn/đích cho từng database.
+7. Reset `search_path`, thiết lập mặc định cho owner role và recycle backend
+   session của pooler để tránh session giữ config cũ.
+8. Cập nhật `CoreApplication/.env` và `CoreApplication/k3s/base/configmap.yaml`.
+9. Cập nhật production `.env`, `bdc-config`, `bdc-secrets`, restart Redis và
+   rollout các database consumer.
+10. Chờ toàn bộ rollout Ready, chạy K3s maintenance theo ngưỡng và giữ ba bộ
+    dump gần nhất.
+
+Nếu bất kỳ bước nào lỗi sau khi production đã được quiesce, tool tự động khôi
+phục ConfigMap, Secret, `.env` và replica count cũ để service quay lại source.
+
+### Yêu cầu
+
+- Docker đang chạy trên máy gọi lệnh.
+- Có `python3` và `ssh`.
+- SSH alias `bdc` truy cập được production K3s.
+- `CoreApplication` nằm cạnh repository này, hoặc đặt `CORE_DIR`.
+- Runner/user trên server đọc được kubeconfig và có quyền quản trị các workload
+  BDC trong namespace đích.
+
+URL phải có dạng đầy đủ và password nên được URL-encode nếu chứa ký tự đặc biệt:
+
+```text
+postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+```
+
+Credential không được ghi vào log hay command line của PostgreSQL client. Tool
+dùng env file tạm có mode `0600`, rồi xóa sau khi kết thúc.
+
+### Tùy chọn
+
+```bash
+./start_migrate --help
+./start_migrate --version
+./start_migrate --jobs 4
+./start_migrate --no-cutover
+./start_migrate --no-quiesce
+```
+
+- `--jobs N`: số job song song bên trong mỗi `pg_dump`/`pg_restore`.
+- `--no-cutover`: chỉ migrate và cập nhật Core local, không sửa production.
+- `--no-quiesce`: không dừng writer. Chỉ dùng khi chấp nhận dữ liệu có thể thay
+  đổi giữa các dump.
+- `--keep-runs N`: số bộ dump mới nhất được giữ lại, mặc định là `3`.
+
+Các override dành cho môi trường khác:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CORE_DIR` | `../CoreApplication` | Đường dẫn CoreApplication |
+| `K3S_SSH_TARGET` | `bdc` | SSH host/alias production |
+| `K3S_REMOTE_ENV_FILE` | `/home/bdc_web/codespace/core/.env` | Production env source |
+| `K3S_NAMESPACE` | `default` | Namespace application |
+| `MIGRATION_JOBS` | `2` | Parallel dump/restore jobs |
+| `KEEP_MIGRATION_RUNS` | `3` | Số dump run được giữ |
+| `K3S_PRUNE_DISK_THRESHOLD` | `82` | Chỉ prune image khi disk đạt ngưỡng |
+
+### Artifacts và báo cáo
+
+Mỗi run tạo thư mục:
+
+```text
+dumps/cutover-<UTC timestamp>-<random>/
+├── databases.txt
+├── <database>.directory/
+└── report.tsv
+```
+
+`report.tsv` chứa database, table count nguồn/đích, dung lượng dump và trạng
+thái. Toàn bộ `dumps/` đã được git-ignore.
+
+### K3s cleanup tối ưu
+
+Core deploy gọi `scripts/k3s-maintenance.sh` trước và sau rollout:
+
+- luôn xóa Kubernetes pod object đã `Succeeded`;
+- giữ pod `Failed` để còn dữ liệu chẩn đoán;
+- không prune image khi disk còn đủ;
+- chỉ chạy `k3s crictl rmi --prune` sau deploy nếu disk usage đạt ngưỡng;
+- không xóa PVC, K3s storage, model cache đang dùng hoặc dữ liệu database.
+
+Điều này tránh kiểu prune unconditional khiến image vừa xóa phải được tải lại
+ngay trong cùng rollout.
+
+---
+
+Các phần bên dưới mô tả CLI Python và Airflow cũ, vẫn được giữ để chạy migration
+không gắn với production cutover.
+
 ---
 
 ## Project Structure
