@@ -57,8 +57,10 @@ while IFS= read -r database; do
     --file="$dump_path" \
     "$source_db_url"
 
-  exists=$(psql "$TARGET_URL" -v database="$database" -Atc \
-    "SELECT 1 FROM pg_database WHERE datname=:'database'")
+  # The database name has already passed the filesystem-safe allow-list above;
+  # keep it as a SQL literal so this check works across psql versions.
+  exists=$(psql "$TARGET_URL" -Atc \
+    "SELECT 1 FROM pg_database WHERE datname='$database'")
   if [ "$exists" != 1 ]; then
     echo "[$database] creating target database"
     createdb --maintenance-db="$TARGET_URL" "$database"

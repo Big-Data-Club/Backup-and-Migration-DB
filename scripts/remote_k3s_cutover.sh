@@ -150,9 +150,9 @@ if not url.path.lstrip("/"):
 if url.port not in (None, 5432):
     raise SystemExit("Production K3s manifests require PostgreSQL port 5432")
 
-host_keys = ["POSTGRES_HOST", "LMS_POSTGRES_HOST", "LAB_POSTGRES_HOST", "CHAT_POSTGRES_HOST", "AI_POSTGRES_HOST"]
-user_keys = ["POSTGRES_USER", "LMS_POSTGRES_USER", "LAB_POSTGRES_USER", "CHAT_POSTGRES_USER", "AI_POSTGRES_USER"]
-password_keys = ["POSTGRES_PASSWORD", "LMS_POSTGRES_PASSWORD", "LAB_POSTGRES_PASSWORD", "CHAT_POSTGRES_PASSWORD", "AI_POSTGRES_PASSWORD"]
+host_keys = ["POSTGRES_HOST", "LMS_POSTGRES_HOST", "LAB_POSTGRES_HOST", "CHAT_POSTGRES_HOST", "AI_POSTGRES_HOST", "DUTYLOG_POSTGRES_HOST"]
+user_keys = ["POSTGRES_USER", "LMS_POSTGRES_USER", "LAB_POSTGRES_USER", "CHAT_POSTGRES_USER", "AI_POSTGRES_USER", "DUTYLOG_POSTGRES_USER"]
+password_keys = ["POSTGRES_PASSWORD", "LMS_POSTGRES_PASSWORD", "LAB_POSTGRES_PASSWORD", "CHAT_POSTGRES_PASSWORD", "AI_POSTGRES_PASSWORD", "DUTYLOG_POSTGRES_PASSWORD"]
 replacements = {key: url.hostname for key in host_keys}
 replacements.update({key: unquote(url.username) for key in user_keys})
 replacements.update({key: unquote(url.password) for key in password_keys})
